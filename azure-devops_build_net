@@ -1,0 +1,105 @@
+name: develop-Kimmi-Backend
+
+variables:
+- name: BuildPlatform
+  value: Any CPU
+- name: BuildConfiguration
+  value: Release
+- name: system.debug
+  value: false
+- name: tag
+  value: '$(Build.BuildId)'
+
+parameters:
+- name: image
+  displayName: Pool Image
+  type: string
+  default: ubuntu-latest
+  values:
+  - ubuntu-latest
+  - macOS-latest
+  - windows-latest
+- name: BuildProjects
+  displayName: buildProjects
+  type: string
+  default: '**/*.csproj'
+
+
+
+trigger:
+  batch: false
+  branches:
+    include:
+    - develop
+  paths:
+    exclude:
+    - README.md
+
+
+stages:
+- stage: Dev
+  displayName: Building stage
+  jobs:
+  - job: Dependencies
+    displayName: Restore dependencies
+    pool:
+      vmImage: '${{ parameters.image }}'
+    steps:
+    - task: DotNetCoreCLI@2               # restore task
+      displayName: Restore dependencies
+      inputs:
+        command: restore
+        projects: '${{ parameters.BuildProjects }}'
+#        feedsToUse: config
+#        nugetConfigPath: NuGet.config
+  - job: Build
+    displayName: Build
+    pool:
+      vmImage: '${{ parameters.image }}'
+    steps:
+    - task: DotNetCoreCLI@2               # build task
+      displayName: build
+      inputs:
+        command: build
+        projects: '${{ parameters.BuildProjects }}'
+        arguments: '--configuration $(BuildConfiguration)'
+        platform: '$(BuildPlatform)'
+
+- stage: QA
+  displayName: Testing stage
+  dependsOn: Dev
+  jobs:
+  - job: Test
+    displayName: Test
+    pool:
+      vmImage: '${{ parameters.image }}'
+    steps:
+    - task: DotNetCoreCLI@2               # test task
+      displayName: Test build
+      inputs:
+        command: test
+        projects: '${{ parameters.BuildProjects }}'
+        arguments: '--configuration $(BuildConfiguration)'
+
+- stage: Publish
+  displayName: Publishing stage
+  dependsOn: QA
+  jobs:
+  - job: Publish                          # publish task
+    displayName: Publish artifacts
+    pool:
+       vmImage: '${{ parameters.image }}'
+    steps:
+    - task: DotNetCoreCLI@2
+      displayName: Publish
+      inputs:
+        command: publish
+        publishTestResults: true
+        publishWebProjects: true
+        arguments: '--configuration $(BuildConfiguration) --output $(build.artifactstagingdirectory)'
+        zipAfterPublish: true
+    - task: PublishBuildArtifacts@1      # copy to artifactory
+      displayName: 'Publish Artifact'
+      inputs:
+        PathtoPublish: '$(build.artifactstagingdirectory)'
+        condition: succeededOrFailed()
